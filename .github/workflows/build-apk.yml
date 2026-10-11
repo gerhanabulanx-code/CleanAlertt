@@ -1,0 +1,91 @@
+
+name: Build CleanAlert APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Ambil kode proyek
+        uses: actions/checkout@v4
+
+      - name: Siapkan Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Siapkan Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Pasang dependensi Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip autoconf libtool pkg-config \
+            zlib1g-dev libncurses5-dev libncursesw5-dev \
+            cmake libffi-dev libssl-dev automake
+
+      - name: Pasang Buildozer
+        run: |
+          python -m pip install --upgrade pip setuptools
+          python -m pip install buildozer cython==0.29.34
+
+      - name: Buat konfigurasi APK
+        run: |
+          buildozer init
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("buildozer.spec")
+          s = p.read_text()
+
+          replacements = {
+              r"(?m)^title\s*=.*$": "title = CleanAlert",
+              r"(?m)^package\.name\s*=.*$": "package.name = cleanalert",
+              r"(?m)^package\.domain\s*=.*$": "package.domain = org.cleanalert",
+              r"(?m)^#?\s*source\.include_exts\s*=.*$":
+                  "source.include_exts = py,png,jpg,kv,atlas",
+              r"(?m)^#?\s*requirements\s*=.*$":
+                  "requirements = python3,kivy",
+              r"(?m)^#?\s*orientation\s*=.*$":
+                  "orientation = portrait",
+          }
+
+          for pattern, replacement in replacements.items():
+              s, count = re.subn(pattern, replacement, s, count=1)
+              if count == 0:
+                  raise RuntimeError(
+                      "Pengaturan tidak ditemukan: " + pattern
+                  )
+
+          s = re.sub(
+              r"(?m)^#?\s*android\.accept_sdk_license\s*=.*$",
+              "android.accept_sdk_license = True",
+              s,
+              count=1
+          )
+
+          p.write_text(s)
+          PY
+
+      - name: Bangun APK
+        run: buildozer -v android debug
+
+      - name: Simpan APK untuk diunduh
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleanAlert-APK
+          path: bin/*.apk
+          if-no-files-found: error
+          retention-days: 7
+          
